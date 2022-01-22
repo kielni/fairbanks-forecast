@@ -1,0 +1,48 @@
+body {
+    background-color: #000;
+    color: #efefef;
+}
+.weekday {
+    font-weight: bold;
+    font-size: 1.3em;
+    max-width: 20%;
+}
+.hour {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    font-size: 10px;
+    color: #333;
+}
+.day {
+    padding-top: 0.3em;
+    padding-bottom: 0.3em;
+}
+.moon i {
+    width: 25px;
+    height: 25px;
+    color: #fff;
+}
+.as-of {
+    font-size: 0.6em;
+}
+
+.progress {
+    height: 2em;
+}
+.clouds {
+    width: 16.7%;
+}
+.clouds-4 { background-color: #d7191c; }
+.clouds-3 { background-color: #fdae61; }
+/*.clouds-2 { background-color: #ffffbf; }*/
+.clouds-2 { background-color: #ffd700; }
+.clouds-1 { background-color: #abd9e9; }
+.clouds-0 { background-color: #2c7bb6; }
+
+svg .clouds-4 { fill: #d7191c; }
+svg .clouds-3 { fill: #fdae61; }
+svg .clouds-2 { fill: #ffffbf; }
+svg .clouds-1 { fill: #abd9e9; }
+svg .clouds-0 { fill: background-color: #2c7bb6; }
