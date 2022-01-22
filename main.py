@@ -15,6 +15,10 @@ DATA_FILENAME = "fairbanks/weather.json"
 FORECAST_FILENAME = "fairbanks/index.html"
 
 
+def debug() -> bool:
+    return "t" in os.environ.get("WRITE_DEBUG", "").lower()
+
+
 def download_forecast_history() -> str:
     response = boto3.client("s3").get_object(
         Bucket=os.environ["S3_BUCKET"], Key=DATA_FILENAME
@@ -30,14 +34,14 @@ def upload_forecast_history(data: str) -> str:
     print(f"uploaded forecasts to s3://{os.environ['S3_BUCKET']}/{DATA_FILENAME}")
 
 
-def upload_html():
-    boto3.client("s3").upload_file(
-        "index.html",
-        os.environ["S3_BUCKET"],
-        FORECAST_FILENAME,
-        ExtraArgs={"ACL": "public-read"},
+def upload_html(text: str, key: str):
+    boto3.client("s3").put_object(
+        Body=text,
+        Bucket=os.environ["S3_BUCKET"],
+        Key=key,
+        ACL="public-read",
     )
-    print(f"uploaded index.html to s3://{os.environ['S3_BUCKET']}/{FORECAST_FILENAME}")
+    print(f"uploaded html to s3://{os.environ['S3_BUCKET']}/{key}")
 
 
 def update_weather(weather: dict, get_current: bool = True):
@@ -57,8 +61,9 @@ def update_weather(weather: dict, get_current: bool = True):
         current["nights"][hour] = weather["nights"][hour] + current["nights"][hour]
     print("merged existing data with new")
     upload_forecast_history(current)
-    with open("latest.json", "w") as f:
-        f.write(json.dumps(current, indent=2))
+    if debug():
+        with open("latest.json", "w") as f:
+            f.write(json.dumps(current, indent=2))
     return current
 
 
@@ -190,14 +195,7 @@ def moon_phase_class(phase: float) -> str:
     return f"wi wi-moon-{phases[phase_idx]}"
 
 
-def hour_sort_key(hf: dict) -> str:
-    # as of date then datetime
-    # order: 2022-01-19 21, 2022-01-19 22, 2022-01-19 23, 2022-01-19 00, 2022-01-19 01, 2022-01-19 02
-    hour = date_parser.parse(hf)
-    return f"{hf['as_of'].split('T')} {hf['hour']}"
-
-
-def render(data: dict):
+def render(data: dict) -> str:
     nights = {}
     today = date.today()
     for day in data["days"]:
@@ -242,20 +240,24 @@ def render(data: dict):
             if len(nights[night]["forecasts"]) >= 4:
                 break
 
-    with open("render.json", "w") as f:
-        f.write(
-            json.dumps(
-                [nights[dt] for dt in sorted(nights.keys())], indent=2, default=str
+    if debug():
+        with open("render.json", "w") as f:
+            f.write(
+                json.dumps(
+                    [nights[dt] for dt in sorted(nights.keys())], indent=2, default=str
+                )
             )
-        )
     with open("index.jinja2") as f:
         rendered = Template(f.read()).render(
             nights=[nights[dt] for dt in sorted(nights.keys())]
         )
-    with open("index.html", "w") as f:
-        print("render: wrote index.html")
-        f.write(rendered)
-    upload_html()
+
+    if debug():
+        with open("index.html", "w") as f:
+            print("render: wrote index.html")
+            f.write(rendered)
+
+    upload_html(rendered, FORECAST_FILENAME)
     return rendered
 
 
@@ -269,7 +271,20 @@ def restart():
     weather = update_weather(weather, get_current=False)
     print("as of 2022-01-19")
 
-    vc_data = get_visual_crossing_forecast(today + timedelta(days=3), today + timedelta(days=10))
+    vc_data = get_visual_crossing_forecast(
+        today + timedelta(days=3), today + timedelta(days=10)
+    )
+    weather = parse_visual_crossing_forecast(vc_data)
+    weather = update_weather(weather)
+    render(weather)
+
+
+def handler(event, context):
+    """Lambda entry point"""
+    today = date.today()
+    vc_data = get_visual_crossing_forecast(
+        today + timedelta(days=1), today + timedelta(days=10)
+    )
     weather = parse_visual_crossing_forecast(vc_data)
     weather = update_weather(weather)
     render(weather)
@@ -290,8 +305,6 @@ def main(update: bool):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--update", help="get new forecast", action="store_true"
-    )
+    parser.add_argument("--update", help="get new forecast", action="store_true")
     args = parser.parse_args()
     main(args.update)
