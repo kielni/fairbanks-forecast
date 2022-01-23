@@ -30,3 +30,8 @@ Lambda environment variables:
   - `VC_KEY` - API key for Visual Crossing forecasts
   - `S3_BUCKET` - S3 bucket for forecast data and HTML
   - `PREFIX` - path prefix for files in S3 bucket
+
+## sample
+
+<img src="screenshot.png">
+
