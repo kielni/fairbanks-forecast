@@ -11,22 +11,24 @@ from dateutil import parser as date_parser
 import requests
 from jinja2 import Template
 
-DATA_FILENAME = "fairbanks/weather.json"
-FORECAST_FILENAME = "fairbanks/index.html"
+PREFIX = os.environ.get("PREFIX", "fairbanks-test")
+DATA_FILENAME = f"{PREFIX}/weather.json"
+FORECAST_FILENAME = f"{PREFIX}/index.html"
+HISTORY_FILENAME = f"{PREFIX}/history.html"
 
 
 def debug() -> bool:
     return "t" in os.environ.get("WRITE_DEBUG", "").lower()
 
 
-def download_forecast_history() -> str:
+def download_forecast_history() -> dict:
     response = boto3.client("s3").get_object(
         Bucket=os.environ["S3_BUCKET"], Key=DATA_FILENAME
     )
     return json.loads(response["Body"].read())
 
 
-def upload_forecast_history(data: str) -> str:
+def upload_forecast_history(data: dict):
     buf = BytesIO()
     buf.write(json.dumps(data, indent=2).encode("utf-8"))
     buf.seek(0)
@@ -40,6 +42,7 @@ def upload_html(text: str, key: str):
         Bucket=os.environ["S3_BUCKET"],
         Key=key,
         ACL="public-read",
+        ContentType="text/html",
     )
     print(f"uploaded html to s3://{os.environ['S3_BUCKET']}/{key}")
 
@@ -81,7 +84,7 @@ def parse_visual_crossing_forecast(
                     "cloudcover": 90.3,
                     "conditions": "Overcast",
     """
-    data = {"days": {}, "nights": {}}
+    data: dict = {"days": {}, "nights": {}}
     day_keys = ["moonphase", "sunrise", "sunset", "tempmax", "tempmin", "description"]
     hour_keys = ["cloudcover", "conditions", "temp", "icon"]
     as_of = (as_of_dt if as_of_dt else datetime.now()).isoformat()
@@ -195,9 +198,8 @@ def moon_phase_class(phase: float) -> str:
     return f"wi wi-moon-{phases[phase_idx]}"
 
 
-def render(data: dict) -> str:
+def render(data: dict):
     nights = {}
-    today = date.today()
     for day in data["days"]:
         nights[day] = {
             "moon_icon": moon_phase_class(data["days"][day]["moonphase"]),
@@ -207,12 +209,10 @@ def render(data: dict) -> str:
     for night in data["nights"]:
         if night not in nights:
             forecast_dt = date_parser.parse(night).date()
-            if forecast_dt < today:
-                continue
             nights.setdefault(night, {"dt": forecast_dt})
 
         # group forecasts by as_of date
-        by_as_of = {}
+        by_as_of: dict = {}
         for fc in sorted(
             data["nights"][night], key=lambda hr: hr["as_of"].split("T"), reverse=True
         ):
@@ -247,18 +247,34 @@ def render(data: dict) -> str:
                     [nights[dt] for dt in sorted(nights.keys())], indent=2, default=str
                 )
             )
-    with open("index.jinja2") as f:
-        rendered = Template(f.read()).render(
-            nights=[nights[dt] for dt in sorted(nights.keys())]
-        )
 
+    today_str = date.today().strftime("%Y-%m-%d")
+    print(f"{len(nights)} nights: {nights.keys()}")
+    with open("index.jinja2") as f:
+        template = Template(f.read())
+    # future forecast
+    sorted_nights = [nights[dt] for dt in sorted(nights.keys()) if dt > today_str]
+    print(f"future: {len(sorted_nights)} days")
+    print(sorted_nights[0])
+    rendered = template.render(nights=sorted_nights)
     if debug():
         with open("index.html", "w") as f:
             print("render: wrote index.html")
             f.write(rendered)
-
     upload_html(rendered, FORECAST_FILENAME)
-    return rendered
+
+    # historical forecast
+    sorted_nights = [nights[dt] for dt in sorted(nights.keys()) if dt <= today_str]
+    if not sorted_nights:
+        return
+    print(f"history: {len(sorted_nights)} days")
+    print(sorted_nights[0])
+    rendered = template.render(nights=sorted_nights)
+    if debug():
+        with open("history.html", "w") as f:
+            print("render: wrote history.html")
+            f.write(rendered)
+    upload_html(rendered, HISTORY_FILENAME)
 
 
 def restart():
